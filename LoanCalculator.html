@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Home Loan Prepayment Calculator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div class="max-w-6xl mx-auto p-6">
+    <header class="mb-6">
+      <h1 class="text-2xl font-semibold">Home Loan Prepayment Calculator</h1>
+      <p class="text-sm text-gray-600">Dynamic, bank-style monthly reducing balance. Change recurring prepayment, add lump sums (1st of month), or add rate changes — table & charts update instantly.</p>
+    </header>
+
+    <main class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <section class="col-span-1 bg-white p-4 rounded shadow">
+        <h2 class="font-medium mb-2">Inputs</h2>
+        <div class="space-y-2 text-sm">
+          <label class="block">Opening balance date (use 1st of month)</label>
+          <input id="openingDate" type="date" class="w-full border p-2 rounded" value="2025-10-01">
+
+          <label class="block">Opening balance (₹)</label>
+          <input id="openingBalance" type="number" class="w-full border p-2 rounded" value="1687340.32" step="0.01">
+
+          <label class="block">Fixed EMI (₹)</label>
+          <input id="emi" type="number" class="w-full border p-2 rounded" value="28456">
+
+          <label class="block">Recurring monthly extra prepayment (₹)</label>
+          <input id="recurringExtra" type="number" class="w-full border p-2 rounded" value="0">
+
+          <label class="block">Max months to simulate</label>
+          <input id="maxMonths" type="number" class="w-full border p-2 rounded" value="360">
+
+          <div class="flex gap-2 mt-2">
+            <button id="recalcBtn" class="px-3 py-2 bg-blue-600 text-white rounded">Recalculate</button>
+            <button id="exportCsvBtn" class="px-3 py-2 bg-green-600 text-white rounded">Export CSV</button>
+            <button id="copyTableBtn" class="px-3 py-2 bg-gray-600 text-white rounded">Copy Table</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="col-span-1 lg:col-span-2 bg-white p-4 rounded shadow">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <h3 class="font-medium mb-2">Rate changes (effective date & annual %)</h3>
+            <div id="ratesList" class="space-y-2 mb-2"></div>
+            <div class="flex gap-2">
+              <input id="rateDate" type="date" class="border p-2 rounded w-full">
+              <input id="ratePct" type="number" class="border p-2 rounded w-28" placeholder="%" step="0.01">
+              <button id="addRate" class="px-3 py-2 bg-indigo-600 text-white rounded">Add</button>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">Tip: enter earliest rate first (sorted by date). If blank, rate for that month will be taken from the most recent earlier effective date.</p>
+          </div>
+
+          <div>
+            <h3 class="font-medium mb-2">Lump-sum prepayments (date - 1st of month)</h3>
+            <div id="lumpsList" class="space-y-2 mb-2"></div>
+            <div class="flex gap-2">
+              <input id="lumpDate" type="date" class="border p-2 rounded w-full">
+              <input id="lumpAmt" type="number" class="border p-2 rounded w-28" placeholder="₹" step="0.01">
+              <button id="addLump" class="px-3 py-2 bg-indigo-600 text-white rounded">Add</button>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">Enter lump-sum date as the 1st day of the month (e.g., 2025-12-01).</p>
+          </div>
+        </div>
+
+        <hr class="my-4">
+        <div class="flex flex-col sm:flex-row gap-4">
+          <div class="flex-1">
+            <h3 class="font-medium">Quick actions</h3>
+            <div class="flex gap-2 mt-2 flex-wrap">
+              <button id="sampleRates" class="px-3 py-2 bg-yellow-500 rounded">Insert sample rates</button>
+              <button id="clearRates" class="px-3 py-2 bg-red-500 rounded text-white">Clear rates</button>
+              <button id="clearLumps" class="px-3 py-2 bg-red-500 rounded text-white">Clear lumps</button>
+            </div>
+          </div>
+
+          <div class="flex-1 sm:max-w-xs bg-gray-50 p-3 rounded">
+            <h3 class="font-medium">Summary</h3>
+            <div id="summaryBox" class="mt-2 text-sm text-gray-700"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="col-span-1 lg:col-span-3 bg-white p-4 rounded shadow">
+        <h2 class="font-medium mb-2">Amortization Schedule</h2>
+        <div class="overflow-x-auto mb-4">
+          <table id="amortTable" class="w-full text-sm border-collapse">
+            <thead class="bg-gray-100">
+              <tr>
+                <th class="border p-1">#</th>
+                <th class="border p-1">PaymentDate</th>
+                <th class="border p-1">Opening</th>
+                <th class="border p-1">Interest</th>
+                <th class="border p-1">EMI</th>
+                <th class="border p-1">PrincipalFromEMI</th>
+                <th class="border p-1">RecurringExtra</th>
+                <th class="border p-1">LumpSum</th>
+                <th class="border p-1">TotalPrincipal</th>
+                <th class="border p-1">Closing</th>
+                <th class="border p-1">CumInterest</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <canvas id="balanceChart" class="bg-white rounded shadow p-2"></canvas>
+          <canvas id="interestChart" class="bg-white rounded shadow p-2"></canvas>
+        </div>
+      </section>
+    </main>
+
+    <footer class="mt-6 text-xs text-gray-500">Open this HTML file in a browser. You can save the page to share with your dad. No data leaves your browser.</footer>
+  </div>
+
+
+<script>
+// Utility functions
+function parseDateInput(v){
+  if(!v) return null;
+  const d = new Date(v);
+  if(isNaN(d)) return null;
+  // normalise to first of month if needed
+  d.setHours(0,0,0,0);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function fmt(n){ return Number(n).toLocaleString('en-IN', {maximumFractionDigits:2, minimumFractionDigits:2}); }
+
+// App state
+let rates = [ {date: '2025-10-01', pct: 10.05} ]; // MODIFIED: Start date to 10-01
+let lumps = [];
+
+// DOM refs
+const ratesList = document.getElementById('ratesList');
+const lumpsList = document.getElementById('lumpsList');
+const openingDateEl = document.getElementById('openingDate');
+const openingBalanceEl = document.getElementById('openingBalance');
+const emiEl = document.getElementById('emi');
+const recurringExtraEl = document.getElementById('recurringExtra');
+const maxMonthsEl = document.getElementById('maxMonths');
+const amortTbody = document.querySelector('#amortTable tbody');
+const summaryBox = document.getElementById('summaryBox');
+const recalcBtn = document.getElementById('recalcBtn');
+
+// Chart instances
+let balanceChart=null, interestChart=null;
+
+function renderRates(){
+  ratesList.innerHTML='';
+  // sort by date
+  rates.sort((a,b)=> new Date(a.date) - new Date(b.date));
+  rates.forEach((r, idx)=>{
+    const div = document.createElement('div');
+    div.className='flex items-center gap-2';
+    div.innerHTML = `<div class="flex-1 text-sm">${r.date} → ${r.pct}%</div><button data-idx='${idx}' class='removeRate px-2 py-1 bg-red-500 text-white rounded'>Remove</button>`;
+    ratesList.appendChild(div);
+  });
+}
+function renderLumps(){
+  lumpsList.innerHTML='';
+  lumps.sort((a,b)=> new Date(a.date)-new Date(b.date));
+  lumps.forEach((l, idx)=>{
+    const div = document.createElement('div');
+    div.className='flex items-center gap-2';
+    div.innerHTML = `<div class="flex-1 text-sm">${l.date} → ₹ ${fmt(l.amt)}</div><button data-idx='${idx}' class='removeLump px-2 py-1 bg-red-500 text-white rounded'>Remove</button>`;
+    lumpsList.appendChild(div);
+  });
+}
+
+// Helpers: get rate for a payment date (string YYYY-MM-DD)
+function getRateFor(dateStr){
+  // rates must be sorted; find the last rate whose date <= dateStr
+  const d = new Date(dateStr + 'T00:00:00Z'); // MODIFIED: Use UTC
+  let chosen = null;
+  for(const r of rates){
+    const rd = new Date(r.date + 'T00:00:00Z'); // MODIFIED: Use UTC
+    if(rd <= d) chosen = r;
+  }
+  return chosen ? Number(chosen.pct) : 0;
+}
+
+function buildSchedule(){
+  const openingDate = openingDateEl.value;
+  const openingBalance = parseFloat(openingBalanceEl.value) || 0;
+  const emi = parseFloat(emiEl.value) || 0;
+  const recurring = parseFloat(recurringExtraEl.value) || 0;
+  const maxMonths = parseInt(maxMonthsEl.value) || 360;
+
+  // map lumps by date string
+  const lumpsMap = {};
+  for(const l of lumps){ lumpsMap[l.date] = (lumpsMap[l.date]||0) + Number(l.amt); }
+
+  let rows = [];
+  let balance = openingBalance;
+  // === DATE LOGIC FIX ===
+  // Create date as UTC
+  let date = new Date(openingDate + 'T00:00:00Z');
+  let cumInt = 0;
+  
+  for(let m=1; m<=maxMonths && balance>0.005; m++){
+    
+    // MODIFIED: Create date string manually from UTC parts
+    const y = date.getUTCFullYear();
+    const month = date.getUTCMonth() + 1; // getUTCMonth is 0-11
+    const day = date.getUTCDate();
+    const dateStr = `${y}-${(month < 10 ? '0' : '') + month}-${(day < 10 ? '0' : '') + day}`;
+    
+    const annual = getRateFor(dateStr);
+    const monthlyRate = annual/100/12;
+    const interest = +(balance * monthlyRate);
+    let principalFromEmi = Math.max(0, emi - interest);
+    const lump = lumpsMap[dateStr] || 0;
+    const extra = recurring || 0;
+    
+    // Check for final payment
+    let totalPrincipal = principalFromEmi + extra + lump;
+    let closing = +(balance - totalPrincipal);
+    let finalEmi = emi;
+
+    if (closing < 0) {
+        // Last payment. Adjust principal to only pay off remaining balance.
+        totalPrincipal = balance;
+        closing = 0;
+        // Adjust EMI to reflect final payment (EMI part only)
+        principalFromEmi = totalPrincipal - extra - lump;
+        if(principalFromEmi < 0) {
+            // Prepayments covered more than the principal from EMI
+            principalFromEmi = 0;
+        }
+    }
+    
+    cumInt += interest;
+    rows.push({
+      idx: m,
+      date: dateStr, // Use the new UTC-based string
+      opening: +balance,
+      interest: +interest,
+      emi: emi, // Keep EMI constant for the column, final payment is handled in summary
+      principalFromEmi: +principalFromEmi,
+      recurringExtra: +extra,
+      lump: +lump,
+      totalPrincipal: +totalPrincipal,
+      closing: +closing,
+      cumInt: +cumInt,
+      annualRate: annual
+    });
+    // advance
+    balance = closing;
+    // MODIFIED: Advance the month using UTC
+    date.setUTCMonth(date.getUTCMonth() + 1);
+  }
+  return rows;
+}
+
+function renderSchedule(rows){
+  amortTbody.innerHTML='';
+  for(const r of rows){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="border p-1 text-xs">${r.idx}</td>
+      <td class_name="border p-1 text-xs">${r.date}</td>
+      <td class="border p-1 text-right text-xs">${fmt(r.opening)}</td>
+      <td class="border p-1 text-right text-xs">${fmt(r.interest)}</td>
+      <td class="border p-1 text-right text-xs">${fmt(r.emi)}</td>
+      <td class="border p-1 text-right text-xs">${fmt(r.principalFromEmi)}</td>
+      <td class="border p-1 text-right text-xs">${fmt(r.recurringExtra)}</td>
+      <td class="border p-1 text-right text-xs">${fmt(r.lump)}</td>
+      <td class="border p-1 text-right text-xs">${fmt(r.totalPrincipal)}</td>
+      <td class="border p-1 text-right text-xs">${fmt(r.closing)}</td>
+      <td class="border p-1 text-right text-xs">${fmt(r.cumInt)}</td>
+    `;
+    amortTbody.appendChild(tr);
+  }
+  
+  // === NEW SUMMARY LOGIC ===
+  if(rows.length===0){ 
+    summaryBox.innerHTML = '<div>No forward schedule (balance already zero?)</div>'; 
+  } else {
+    // 1. Get results from *current* (prepayment) schedule
+    const last = rows[rows.length-1];
+    const monthsWithPrepayment = rows.length;
+    const payoffDateWithPrepayment = last.date;
+    const totalInterestWithPrepayment = last.cumInt;
+    const totalRecurringPrepaid = rows.reduce((acc, r) => acc + r.recurringExtra, 0);
+    const totalLumpPrepaid = rows.reduce((acc, r) => acc + r.lump, 0);
+    const totalPrepaid = totalRecurringPrepaid + totalLumpPrepaid;
+    const openingBalance = parseFloat(openingBalanceEl.value) || 0;
+    const totalPaid = openingBalance + totalInterestWithPrepayment;
+
+    // 2. Calculate *baseline* (no prepayment) schedule
+    const originalRecurring = recurringExtraEl.value;
+    const originalLumps = [...lumps];
+    recurringExtraEl.value = 0; // No recurring
+    lumps = []; // No lump sums
+    
+    const baselineRows = buildSchedule();
+    
+    // Restore original inputs
+    recurringExtraEl.value = originalRecurring;
+    lumps = originalLumps;
+
+    // 3. Get results from *baseline* schedule
+    let baselineMonths = 0;
+    let baselineTotalInterest = 0;
+    if (baselineRows.length > 0) {
+        const baselineLast = baselineRows[baselineRows.length-1];
+        baselineMonths = baselineRows.length;
+        baselineTotalInterest = baselineLast.cumInt;
+        // Check if baseline loan finished
+        if (baselineLast.closing > 0.005) {
+            baselineMonths = `>${baselineMonths}`;
+            baselineTotalInterest = `>${fmt(baselineTotalInterest)}`;
+        } else {
+             baselineTotalInterest = baselineLast.cumInt;
+        }
+    }
+    
+    // 4. Calculate savings
+    const interestSaved = (typeof baselineTotalInterest === 'number') ? (baselineTotalInterest - totalInterestWithPrepayment) : 0;
+    const monthsSaved = (typeof baselineMonths === 'number') ? (baselineMonths - monthsWithPrepayment) : 0;
+
+    // 5. Build new summary string
+    summaryBox.innerHTML = `
+      <div class="mb-2">
+        <div><strong>Months to payoff:</strong> ${monthsWithPrepayment}</div>
+        <div class="text-gray-600">(Baseline: ${baselineMonths} months)</div>
+        <div><strong>Months saved:</strong> <span class="text-green-600 font-bold">${monthsSaved}</span></div>
+      </div>
+      <div class="mb-2">
+        <div><strong>Total Interest:</strong> ₹ ${fmt(totalInterestWithPrepayment)}</div>
+        <div class="text-gray-600">(Baseline: ₹ ${fmt(baselineTotalInterest)})</div>
+        <div><strong>Interest saved:</strong> <span class="text-green-600 font-bold">₹ ${fmt(interestSaved)}</span></div>
+      </div>
+      <div>
+        <div><strong>Total Prepayments:</strong> ₹ ${fmt(totalPrepaid)}</div>
+        <div><strong>Total Paid:</strong> ₹ ${fmt(totalPaid)}</div>
+      </div>
+    `;
+  }
+  
+  renderCharts(rows);
+}
+
+function renderCharts(rows){
+  const labels = rows.map(r=>r.date);
+  const balances = rows.map(r=>r.closing);
+  const cumInterest = rows.map(r=>r.cumInt);
+
+  // balance chart
+  const bc = document.getElementById('balanceChart').getContext('2d');
+  if(balanceChart) balanceChart.destroy();
+  balanceChart = new Chart(bc,{
+    type:'line',
+    data:{ labels, datasets:[{ label:'Closing balance', data:balances, fill:false, tension:0.2, borderColor: 'rgb(59, 130, 246)', backgroundColor: 'rgba(59, 130, 246, 0.5)' }]},
+    options:{ scales:{ y:{ beginAtZero:false, ticks:{ callback: value => value.toLocaleString('en-IN') } } } }
+  });
+  // interest chart
+  const ic = document.getElementById('interestChart').getContext('2d');
+  if(interestChart) interestChart.destroy();
+  interestChart = new Chart(ic,{
+    type:'line',
+    data:{ labels, datasets:[{ label:'Cumulative interest', data:cumInterest, fill:false, tension:0.2, borderColor: 'rgb(234, 88, 12)', backgroundColor: 'rgba(234, 88, 12, 0.5)' }]},
+    options:{ scales:{ y:{ beginAtZero:true, ticks:{ callback: value => value.toLocaleString('en-IN') } } } }
+  });
+}
+
+function runFullRecalc() {
+    const rows = buildSchedule();
+    renderSchedule(rows);
+}
+
+// Actions
+document.getElementById('addRate').addEventListener('click', ()=>{
+  const d = document.getElementById('rateDate').value;
+  const p = document.getElementById('ratePct').value;
+  if(!d || p==='') return alert('Enter date and %');
+  rates.push({date:d, pct: parseFloat(p)});
+  renderRates();
+  recalcBtn.click();
+});
+
+document.getElementById('addLump').addEventListener('click', ()=>{
+  const d = document.getElementById('lumpDate').value;
+  const a = document.getElementById('lumpAmt').value;
+  if(!d || a==='') return alert('Enter date and amount');
+  lumps.push({date:d, amt: parseFloat(a)});
+  renderLumps();
+  recalcBtn.click();
+});
+
+// sample & clear
+document.getElementById('sampleRates').addEventListener('click', ()=>{
+  rates = [ {date:'2025-10-01', pct:10.05}, {date:'2026-04-01', pct:9.5}, {date:'2027-01-01', pct:9.75} ]; 
+  renderRates();
+  recalcBtn.click();
+});
+document.getElementById('clearRates').addEventListener('click', ()=>{ 
+    rates=[]; 
+    renderRates(); 
+    recalcBtn.click();
+});
+document.getElementById('clearLumps').addEventListener('click', ()=>{ 
+    lumps=[]; 
+    renderLumps(); 
+    recalcBtn.click();
+});
+
+// remove handlers
+ratesList.addEventListener('click', (e)=>{ 
+    if(e.target.matches('.removeRate')){ 
+        const idx = +e.target.dataset.idx; 
+        rates.splice(idx,1); 
+        renderRates(); 
+        recalcBtn.click();
+    } 
+});
+lumpsList.addEventListener('click', (e)=>{ 
+    if(e.target.matches('.removeLump')){ 
+        const idx = +e.target.dataset.idx; 
+        lumps.splice(idx,1); 
+        renderLumps(); 
+        recalcBtn.click();
+    } 
+});
+
+// recalc
+recalcBtn.addEventListener('click', runFullRecalc);
+
+// export csv
+function toCsv(rows){
+  const hdr = ['idx','PaymentDate','Opening','Interest','EMI','PrincipalFromEMI','RecurringExtra','Lump','TotalPrincipal','Closing','CumulativeInterest'];
+  const lines = [hdr.join(',')];
+  for(const r of rows){
+    lines.push([r.idx, r.date, r.opening, r.interest, r.emi, r.principalFromEmi, r.recurringExtra, r.lump, r.totalPrincipal, r.closing, r.cumInt].join(','));
+  }
+  return lines.join('\n');
+}
+
+document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
+  const rows = buildSchedule();
+  const csv = toCsv(rows);
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'amortization.csv'; a.click(); URL.revokeObjectURL(url);
+});
+
+// copy table
+document.getElementById('copyTableBtn').addEventListener('click', async ()=>{
+  const rows = buildSchedule();
+  const csv = toCsv(rows);
+  try{ await navigator.clipboard.writeText(csv); alert('Table copied as CSV to clipboard'); } catch(e){ alert('Copy failed — perhaps your browser blocked clipboard'); }
+});
+
+// initial render
+renderRates(); renderLumps(); recalcBtn.click();
+</script>
+</body>
+</html>
